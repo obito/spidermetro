@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Paris Metro SpiderMap</title>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100vh;
+        }
+
+        #precision-pointer {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 48px;
+            height: 48px;
+            background-image: url('precision.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            max-width: 350px;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 5;
+        }
+
+        #info-panel h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #4A90E2;
+            padding-bottom: 8px;
+        }
+
+        .station-item {
+            margin-bottom: 15px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #4A90E2;
+        }
+
+        .station-item:hover {
+            background: #e9ecef;
+            transition: background 0.2s;
+        }
+
+        .station-name {
+            font-weight: 600;
+            font-size: 15px;
+            color: #2c3e50;
+            margin-bottom: 6px;
+        }
+
+        .station-lines {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .line-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #4A90E2;
+            color: white;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .station-distance {
+            color: #666;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 12px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 5;
+        }
+
+        .mapboxgl-ctrl-logo {
+            margin-bottom: 10px !important;
+        }
+
+        /* Custom scrollbar for info panel */
+        #info-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #info-panel::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #info-panel::-webkit-scrollbar-thumb {
+            background: #4A90E2;
+            border-radius: 10px;
+        }
+
+        #info-panel::-webkit-scrollbar-thumb:hover {
+            background: #357ABD;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="precision-pointer"></div>
+    <div id="info-panel">
+        <h2>5 Closest Metro Stations</h2>
+        <div id="stations-list">
+            <p style="color: #666; font-style: italic;">Move the map to find nearest stations...</p>
+        </div>
+    </div>
+    <div id="instructions">
+        Drag the map to explore • The pointer stays centered
+    </div>
+
+    <script>
+        // Initialize Mapbox (You'll need to add your own access token)
+        // Get a free token at: https://account.mapbox.com/
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYm5rZCIsImEiOiJjbWdqN3VueHUwZDA4MmxzZm9jdnk1cGk1In0.Usvu5HgEaJdvXtEplSKSug'; // Replace with your token
+        
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/dark-v11',
+            center: [2.3522, 48.8566], // Paris center
+            zoom: 13,
+            pitch: 0
+        });
+
+        let metroStationsData = null;
+        let initLoad = true;
+
+        // Format distance for display
+        function formatDistance(meters) {
+            if (meters < 1000) {
+                return Math.round(meters) + ' m';
+            } else {
+                return (meters / 1000).toFixed(2) + ' km';
+            }
+        }
+
+        // Find the 5 closest stations using Turf.js (much faster!)
+        function findClosestStations(center, stationsData) {
+            const centerPoint = turf.point([center[0], center[1]]);
+            
+            // Calculate distance for all stations and group by station name
+            const stationsByName = new Map();
+            
+            stationsData.features.forEach(station => {
+                const distance = turf.distance(centerPoint, station, { units: 'meters' });
+                const name = station.properties.nom_gares;
+                const line = station.properties.indice_lig;
+                
+                if (!stationsByName.has(name)) {
+                    stationsByName.set(name, {
+                        name: name,
+                        coordinates: station.geometry.coordinates,
+                        distance: distance,
+                        lines: [line]
+                    });
+                } else {
+                    // Same station, different line - just add the line if not already there
+                    const existing = stationsByName.get(name);
+                    if (!existing.lines.includes(line)) {
+                        existing.lines.push(line);
+                    }
+                    // Keep the closest entrance's coordinates
+                    if (distance < existing.distance) {
+                        existing.distance = distance;
+                        existing.coordinates = station.geometry.coordinates;
+                    }
+                }
+            });
+            
+            // Convert to array and sort by distance
+            const uniqueStations = Array.from(stationsByName.values())
+                .sort((a, b) => a.distance - b.distance)
+                .slice(0, 5);
+            
+            // Create lines and format stations
+            const nearestStations = [];
+            const nearestLines = [];
+            
+            uniqueStations.forEach(station => {
+                // Create a GeoJSON feature for compatibility
+                nearestStations.push({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: station.coordinates
+                    },
+                    properties: {
+                        nom_gares: station.name,
+                        lines: station.lines
+                    },
+                    distance: station.distance
+                });
+                
+                // Create line from center to station
+                const line = turf.lineString([
+                    centerPoint.geometry.coordinates,
+                    station.coordinates
+                ]);
+                nearestLines.push(line);
+            });
+
+            return { stations: nearestStations, lines: nearestLines };
+        }
+
+        // Update the spider lines and info panel
+        function updateSpiderMap() {
+            if (!metroStationsData) return;
+
+            const center = map.getCenter().toArray();
+            const { stations, lines } = findClosestStations(center, metroStationsData);
+
+            // Convert lines to GeoJSON FeatureCollection
+            const linesFeatureCollection = turf.featureCollection(lines);
+
+            // First load: add layers, subsequent loads: update sources
+            if (initLoad) {
+                // Add spider lines source and layer
+                map.addSource('spider-lines', {
+                    type: 'geojson',
+                    data: linesFeatureCollection
+                });
+
+                map.addLayer({
+                    id: 'spider-lines-layer',
+                    type: 'line',
+                    source: 'spider-lines',
+                    layout: {
+                        'line-cap': 'round',
+                        'line-join': 'round'
+                    },
+                    paint: {
+                        'line-color': '#FFFFFF',
+                        'line-width': 3,
+                        'line-opacity': 0.9
+                    }
+                });
+
+                initLoad = false;
+            } else {
+                // Just update the data source (much faster!)
+                map.getSource('spider-lines').setData(linesFeatureCollection);
+            }
+
+            // Update info panel
+            updateInfoPanel(stations);
+        }
+
+        // Update the info panel with station details
+        function updateInfoPanel(stations) {
+            const stationsList = document.getElementById('stations-list');
+            stationsList.innerHTML = '';
+
+            stations.forEach((station, index) => {
+                const stationDiv = document.createElement('div');
+                stationDiv.className = 'station-item';
+
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'station-name';
+                nameDiv.textContent = `${index + 1}. ${station.properties.nom_gares}`;
+
+                const distanceDiv = document.createElement('div');
+                distanceDiv.className = 'station-distance';
+                distanceDiv.textContent = `Distance: ${formatDistance(station.distance)}`;
+
+                const linesDiv = document.createElement('div');
+                linesDiv.className = 'station-lines';
+                
+                // Display all lines for this station
+                const lines = station.properties.lines || [];
+                lines.sort((a, b) => {
+                    // Sort lines numerically (handle bis lines)
+                    const numA = parseFloat(a.replace('b', '.5'));
+                    const numB = parseFloat(b.replace('b', '.5'));
+                    return numA - numB;
+                }).forEach(line => {
+                    const lineBadge = document.createElement('span');
+                    lineBadge.className = 'line-badge';
+                    lineBadge.textContent = `M${line}`;
+                    lineBadge.style.background = getLineColor(line);
+                    linesDiv.appendChild(lineBadge);
+                });
+
+                stationDiv.appendChild(nameDiv);
+                stationDiv.appendChild(distanceDiv);
+                stationDiv.appendChild(linesDiv);
+                stationsList.appendChild(stationDiv);
+            });
+        }
+
+        // Get color for metro line (simplified version)
+        function getLineColor(line) {
+            const colors = {
+                '1': '#FFCD00',
+                '2': '#0064B0',
+                '3': '#9F9825',
+                '3bis': '#98D4E2',
+                '4': '#C04191',
+                '5': '#F28E42',
+                '6': '#83C491',
+                '7': '#F3A4BA',
+                '7bis': '#83C491',
+                '8': '#CEADD2',
+                '9': '#D5C900',
+                '10': '#E3B32A',
+                '11': '#8D5E2A',
+                '12': '#00814F',
+                '13': '#98D4E2',
+                '14': '#662483'
+            };
+            return colors[line] || '#4A90E2';
+        }
+
+        // Load metro stations data
+        map.on('load', () => {
+            fetch('metro-stations-optimized.geojson')
+                .then(response => response.json())
+                .then(data => {
+                    // Data is already filtered and optimized for metro only
+                    metroStationsData = data;
+
+                    // Add metro stations as a layer
+                    map.addSource('metro-stations', {
+                        type: 'geojson',
+                        data: metroStationsData
+                    });
+
+                    map.addLayer({
+                        id: 'metro-stations-layer',
+                        type: 'circle',
+                        source: 'metro-stations',
+                        paint: {
+                            'circle-radius': 5,
+                            'circle-color': '#00D9FF',
+                            'circle-stroke-width': 2,
+                            'circle-stroke-color': '#ffffff',
+                            'circle-opacity': 0.95
+                        }
+                    });
+
+                    // Add station labels
+                    map.addLayer({
+                        id: 'metro-stations-labels',
+                        type: 'symbol',
+                        source: 'metro-stations',
+                        layout: {
+                            'text-field': ['get', 'nom_gares'],
+                            'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+                            'text-size': 10,
+                            'text-offset': [0, 1.5],
+                            'text-anchor': 'top'
+                        },
+                        paint: {
+                            'text-color': '#FFFFFF',
+                            'text-halo-color': '#000',
+                            'text-halo-width': 2
+                        },
+                        minzoom: 14
+                    });
+
+                    // Initial update
+                    updateSpiderMap();
+                })
+                .catch(error => {
+                    console.error('Error loading metro stations:', error);
+                    document.getElementById('stations-list').innerHTML = 
+                        '<p style="color: red;">Error loading metro data. Please check console.</p>';
+                });
+        });
+
+        // Update spider map in real-time when map moves - no debouncing for instant response
+        map.on('move', updateSpiderMap);
+
+        // Add hover effect for metro stations
+        map.on('mouseenter', 'metro-stations-layer', () => {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+
+        map.on('mouseleave', 'metro-stations-layer', () => {
+            map.getCanvas().style.cursor = '';
+        });
+
+        // Show popup on station click
+        map.on('click', 'metro-stations-layer', (e) => {
+            const coordinates = e.features[0].geometry.coordinates.slice();
+            const name = e.features[0].properties.nom_gares;
+            const line = e.features[0].properties.indice_lig;
+
+            const lineHTML = `<span style="display: inline-block; background: ${getLineColor(line)}; color: white; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 11px; font-weight: 600;">M${line}</span>`;
+
+            new mapboxgl.Popup()
+                .setLngLat(coordinates)
+                .setHTML(`
+                    <div style="padding: 8px;">
+                        <strong style="font-size: 14px;">${name}</strong><br>
+                        <div style="margin-top: 6px;">${lineHTML}</div>
+                    </div>
+                `)
+                .addTo(map);
+        });
+    </script>
+</body>
+</html>
+
