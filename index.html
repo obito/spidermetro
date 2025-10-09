@@ -63,6 +63,38 @@
             color: #333;
             border-bottom: 2px solid #4A90E2;
             padding-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #toggle-panel-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+            line-height: 1;
+        }
+
+        #toggle-panel-btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        #info-panel.minimized {
+            width: auto;
+            max-width: none;
+        }
+
+        #info-panel.minimized h2 {
+            margin-bottom: 0;
+            border-bottom: none;
+        }
+
+        #info-panel.minimized #stations-list {
+            display: none;
         }
 
         .station-item {
@@ -148,7 +180,10 @@
     <div id="map"></div>
     <div id="precision-pointer"></div>
     <div id="info-panel">
-        <h2>5 Closest Metro Stations</h2>
+        <h2>
+            <span>5 Closest Metro Stations</span>
+            <button id="toggle-panel-btn" title="Minimize panel">−</button>
+        </h2>
         <div id="stations-list">
             <p style="color: #666; font-style: italic;">Move the map to find nearest stations...</p>
         </div>
@@ -417,6 +452,22 @@
 
         // Update spider map in real-time when map moves - no debouncing for instant response
         map.on('move', updateSpiderMap);
+
+        // Toggle info panel minimize/maximize
+        document.getElementById('toggle-panel-btn').addEventListener('click', function() {
+            const panel = document.getElementById('info-panel');
+            const btn = this;
+            
+            panel.classList.toggle('minimized');
+            
+            if (panel.classList.contains('minimized')) {
+                btn.textContent = '+';
+                btn.title = 'Expand panel';
+            } else {
+                btn.textContent = '−';
+                btn.title = 'Minimize panel';
+            }
+        });
 
         // Add hover effect for metro stations
         map.on('mouseenter', 'metro-stations-layer', () => {
