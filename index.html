@@ -57,6 +57,75 @@
             z-index: 5;
         }
 
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {
+            #info-panel {
+                top: 10px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
+                width: auto;
+                padding: 15px;
+                max-height: 50vh;
+            }
+
+            #toggle-spider {
+                top: 10px;
+                left: 70px;
+                padding: 10px 16px;
+                font-size: 13px;
+            }
+
+            @media (max-width: 480px) {
+                #toggle-spider {
+                    left: 60px;
+                    padding: 8px 12px;
+                    font-size: 12px;
+                }
+            }
+
+            #instructions {
+                bottom: 10px;
+                left: 10px;
+                right: 10px;
+                font-size: 12px;
+                padding: 8px 12px;
+            }
+
+            .station-item {
+                margin-bottom: 10px;
+                padding: 10px;
+            }
+
+            .station-name {
+                font-size: 14px;
+            }
+
+            .station-distance {
+                font-size: 12px;
+            }
+
+            .line-badge {
+                padding: 2px 8px;
+                font-size: 11px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            #info-panel {
+                padding: 12px;
+                max-height: 45vh;
+            }
+
+            #info-panel h2 {
+                font-size: 16px;
+            }
+
+            .station-item {
+                padding: 8px;
+            }
+        }
+
         #info-panel h2 {
             font-size: 18px;
             margin-bottom: 15px;
@@ -95,6 +164,52 @@
 
         #info-panel.minimized #stations-list {
             display: none;
+        }
+
+        /* Mobile-specific minimized panel styles */
+        @media (max-width: 768px) {
+            #info-panel.minimized {
+                top: 10px;
+                right: 10px;
+                left: auto;
+                width: auto;
+                max-width: none;
+                padding: 8px 12px;
+                min-width: auto;
+            }
+
+            #info-panel.minimized h2 {
+                font-size: 12px;
+                padding: 0;
+                margin: 0;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                white-space: nowrap;
+            }
+
+            #info-panel.minimized h2 span:first-child {
+                display: none;
+            }
+
+            #info-panel.minimized .toggle-icon {
+                font-size: 14px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            #info-panel.minimized {
+                padding: 6px 10px;
+            }
+
+            #info-panel.minimized h2 {
+                font-size: 11px;
+                gap: 4px;
+            }
+
+            #info-panel.minimized .toggle-icon {
+                font-size: 12px;
+            }
         }
 
         .station-item {
@@ -152,6 +267,45 @@
             z-index: 5;
         }
 
+        /* MapBox GeolocateControl styling */
+        .mapboxgl-ctrl-geolocate {
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(10px);
+            border-radius: 8px !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+            border: none !important;
+        }
+
+        .mapboxgl-ctrl-geolocate:hover {
+            background: rgba(255, 255, 255, 1) !important;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2) !important;
+        }
+
+        .mapboxgl-ctrl-geolocate:active {
+            background: rgba(74, 144, 226, 0.95) !important;
+        }
+
+        /* Move toggle button to the right to avoid overlap with geolocate control */
+        #toggle-spider {
+            position: absolute;
+            top: 20px;
+            left: 80px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .mapboxgl-ctrl-logo {
             margin-bottom: 10px !important;
         }
@@ -207,6 +361,12 @@
 
         let metroStationsData = null;
         let initLoad = true;
+        let spiderMapEnabled = true;
+
+        // Check if mobile device
+        function isMobile() {
+            return window.innerWidth <= 768;
+        }
 
         // Format distance for display
         function formatDistance(meters) {
@@ -395,6 +555,9 @@
 
         // Load metro stations data
         map.on('load', () => {
+            // Initialize panel state for mobile
+            initializePanelState();
+            
             fetch('metro-stations-optimized.geojson')
                 .then(response => response.json())
                 .then(data => {
@@ -453,6 +616,19 @@
         // Update spider map in real-time when map moves - no debouncing for instant response
         map.on('move', updateSpiderMap);
 
+        // Initialize panel state based on device
+        function initializePanelState() {
+            const panel = document.getElementById('info-panel');
+            const btn = document.getElementById('toggle-panel-btn');
+            
+            if (isMobile()) {
+                // Start minimized on mobile
+                panel.classList.add('minimized');
+                btn.innerHTML = '<span class="toggle-icon">📊</span><span>Stations</span>';
+                btn.title = 'Show metro stations';
+            }
+        }
+
         // Toggle info panel minimize/maximize
         document.getElementById('toggle-panel-btn').addEventListener('click', function() {
             const panel = document.getElementById('info-panel');
@@ -461,12 +637,37 @@
             panel.classList.toggle('minimized');
             
             if (panel.classList.contains('minimized')) {
-                btn.textContent = '+';
-                btn.title = 'Expand panel';
+                if (isMobile()) {
+                    btn.innerHTML = '<span class="toggle-icon">📊</span><span>Stations</span>';
+                    btn.title = 'Show metro stations';
+                } else {
+                    btn.textContent = '+';
+                    btn.title = 'Expand panel';
+                }
             } else {
                 btn.textContent = '−';
                 btn.title = 'Minimize panel';
             }
+        });
+
+        // Add MapBox GeolocateControl
+        map.addControl(
+            new mapboxgl.GeolocateControl({
+                positionOptions: {
+                    enableHighAccuracy: true
+                },
+                trackUserLocation: true,
+                showUserHeading: true
+            }),
+            'top-left' // Position it in top-left corner
+        );
+
+        // Listen for geolocate events to update spider map
+        map.on('geolocate', function(e) {
+            // Update spider map when user location is found
+            setTimeout(() => {
+                updateSpiderMap();
+            }, 500);
         });
 
         // Add hover effect for metro stations
